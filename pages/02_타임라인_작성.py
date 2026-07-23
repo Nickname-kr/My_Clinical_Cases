@@ -30,6 +30,7 @@ except KeyError:
 # API 요청 함수
 # =========================================================
 def api_get(params: dict) -> dict:
+    """Google Apps Script에 GET 요청을 보냅니다."""
     if not SHEET_URL:
         return {
             "success": False,
@@ -51,6 +52,12 @@ def api_get(params: dict) -> dict:
             "message": "Google Spreadsheet 연결 시간이 초과되었습니다.",
         }
 
+    except requests.exceptions.ConnectionError:
+        return {
+            "success": False,
+            "message": "Google Spreadsheet에 연결하지 못했습니다.",
+        }
+
     except requests.exceptions.RequestException as error:
         return {
             "success": False,
@@ -65,6 +72,7 @@ def api_get(params: dict) -> dict:
 
 
 def api_post(data: dict) -> dict:
+    """Google Apps Script에 POST 요청을 보냅니다."""
     if not SHEET_URL:
         return {
             "success": False,
@@ -86,6 +94,12 @@ def api_post(data: dict) -> dict:
             "message": "Google Spreadsheet 연결 시간이 초과되었습니다.",
         }
 
+    except requests.exceptions.ConnectionError:
+        return {
+            "success": False,
+            "message": "Google Spreadsheet에 연결하지 못했습니다.",
+        }
+
     except requests.exceptions.RequestException as error:
         return {
             "success": False,
@@ -99,7 +113,11 @@ def api_post(data: dict) -> dict:
         }
 
 
+# =========================================================
+# 데이터 조회 함수
+# =========================================================
 def get_cases() -> list:
+    """저장된 전체 증례 목록을 불러옵니다."""
     result = api_get({"action": "case_list"})
 
     if result.get("success"):
@@ -115,6 +133,7 @@ def get_cases() -> list:
 
 
 def get_timeline(case_id: str) -> list:
+    """선택한 증례의 타임라인을 불러옵니다."""
     result = api_get(
         {
             "action": "timeline_list",
@@ -138,8 +157,9 @@ def get_timeline(case_id: str) -> list:
 # 보조 함수
 # =========================================================
 def make_case_label(case: dict) -> str:
-    case_id = case.get("case_id", "")
-    patient_code = case.get("patient_code", "")
+    """증례 선택창에 표시할 문구를 만듭니다."""
+    case_id = str(case.get("case_id", "") or "")
+    patient_code = str(case.get("patient_code", "") or "")
 
     diagnosis = (
         case.get("pathologic_diagnosis")
@@ -150,85 +170,115 @@ def make_case_label(case: dict) -> str:
     return f"{case_id} · {patient_code} · {diagnosis}"
 
 
-def safe_text(value) -> str:
-    if value is None or str(value).strip() == "":
+def clean_display_text(value) -> str:
+    """빈 값을 하이픈으로 바꾸고 문자열로 반환합니다."""
+    if value is None:
         return "-"
 
-    return html.escape(str(value).strip()).replace("\n", "<br>")
+    text = str(value).strip()
+    return text if text else "-"
 
 
-def make_timeline_figure(timeline_df: pd.DataFrame) -> go.Figure:
-    """
-    막대그래프가 아닌 의료 증례용 사건 타임라인을 생성합니다.
-    """
+def safe_html(value) -> str:
+    """HTML 카드에 안전하게 출력할 문자열로 변환합니다."""
+    if value is None:
+        return "-"
 
+    text = str(value).strip()
+
+    if not text:
+        return "-"
+
+    return html.escape(text).replace("\n", "<br>")
+
+
+def build_timeline_figure(timeline_df: pd.DataFrame) -> go.Figure:
+    """사건들이 하나의 선 위에 연결되는 타임라인을 만듭니다."""
     plot_df = timeline_df.copy()
 
-    # 같은 날짜의 사건이 겹치지 않도록 순서를 계산합니다.
     plot_df["same_day_order"] = plot_df.groupby(
         "event_date"
     ).cumcount()
 
-    # 사건 라벨을 위아래로 번갈아 배치합니다.
     y_positions = []
 
     for index, row in plot_df.iterrows():
-        base_y = 0.26 if index % 2 == 0 else -0.26
+        base_position = 0.32 if index % 2 == 0 else -0.32
+        additional_offset = row["same_day_order"] * 0.15
 
-        # 같은 날짜에 여러 사건이 있으면 조금씩 더 벌립니다.
-        extra_offset = row["same_day_order"] * 0.13
-
-        if base_y > 0:
-            y_positions.append(base_y + extra_offset)
+        if base_position > 0:
+            y_positions.append(base_position + additional_offset)
         else:
-            y_positions.append(base_y - extra_offset)
+            y_positions.append(base_position - additional_offset)
 
     plot_df["y_position"] = y_positions
 
     event_colors = {
-        "초진": "#4EA1FF",
-        "외래": "#7FB3FF",
-        "영상검사": "#22C7A9",
-        "조직검사": "#B58CFF",
-        "병리결과": "#D079FF",
-        "입원": "#F4B860",
-        "수술": "#FF6B6B",
-        "약물치료": "#62C370",
-        "방사선치료": "#FF9F43",
-        "항암치료": "#F368E0",
-        "합병증": "#E74C3C",
-        "퇴원": "#54A0FF",
-        "추적관찰": "#48C9B0",
-        "재발": "#C0392B",
-        "기타": "#95A5A6",
+        "초진": "#2563EB",
+        "외래": "#60A5FA",
+        "영상검사": "#0891B2",
+        "조직검사": "#7C3AED",
+        "병리결과": "#A855F7",
+        "입원": "#D97706",
+        "수술": "#DC2626",
+        "약물치료": "#16A34A",
+        "방사선치료": "#EA580C",
+        "항암치료": "#DB2777",
+        "합병증": "#B91C1C",
+        "퇴원": "#0284C7",
+        "추적관찰": "#0D9488",
+        "재발": "#991B1B",
+        "기타": "#64748B",
     }
 
     marker_colors = [
-        event_colors.get(event_type, "#95A5A6")
+        event_colors.get(event_type, "#64748B")
         for event_type in plot_df["event_type"]
     ]
 
     figure = go.Figure()
 
-    # 중앙 기준선
+    minimum_date = plot_df["event_date"].min()
+    maximum_date = plot_df["event_date"].max()
+
+    if minimum_date == maximum_date:
+        line_start = minimum_date - pd.Timedelta(days=2)
+        line_end = maximum_date + pd.Timedelta(days=2)
+    else:
+        total_days = max(
+            int((maximum_date - minimum_date).days),
+            1,
+        )
+
+        padding_days = max(
+            int(total_days * 0.1),
+            1,
+        )
+
+        line_start = minimum_date - pd.Timedelta(
+            days=padding_days
+        )
+
+        line_end = maximum_date + pd.Timedelta(
+            days=padding_days
+        )
+
+    # 중앙 가로선
     figure.add_trace(
         go.Scatter(
-            x=[
-                plot_df["event_date"].min(),
-                plot_df["event_date"].max(),
-            ],
+            x=[line_start, line_end],
             y=[0, 0],
             mode="lines",
             line={
-                "color": "#718096",
-                "width": 3,
+                "color": "#94A3B8",
+                "width": 4,
             },
             hoverinfo="skip",
             showlegend=False,
         )
     )
 
-    # 기준선과 사건 마커를 연결하는 세로선
+    # 사건과 중앙선을 연결하는 세로선
     for _, row in plot_df.iterrows():
         figure.add_trace(
             go.Scatter(
@@ -242,8 +292,8 @@ def make_timeline_figure(timeline_df: pd.DataFrame) -> go.Figure:
                 ],
                 mode="lines",
                 line={
-                    "color": "#A0AEC0",
-                    "width": 1.5,
+                    "color": "#CBD5E1",
+                    "width": 2,
                 },
                 hoverinfo="skip",
                 showlegend=False,
@@ -258,28 +308,28 @@ def make_timeline_figure(timeline_df: pd.DataFrame) -> go.Figure:
         ]
     ].values
 
-    # 사건 마커
+    # 사건 마커와 사건명
     figure.add_trace(
         go.Scatter(
             x=plot_df["event_date"],
             y=plot_df["y_position"],
             mode="markers+text",
             marker={
-                "size": 19,
+                "size": 21,
                 "color": marker_colors,
                 "line": {
                     "color": "#FFFFFF",
-                    "width": 2,
+                    "width": 3,
                 },
             },
             text=plot_df["event_type"],
             textposition=[
-                "top center" if y > 0 else "bottom center"
-                for y in plot_df["y_position"]
+                "top center" if value > 0 else "bottom center"
+                for value in plot_df["y_position"]
             ],
             textfont={
                 "size": 14,
-                "color": "#1F2937",
+                "color": "#0F172A",
             },
             customdata=custom_data,
             hovertemplate=(
@@ -292,33 +342,9 @@ def make_timeline_figure(timeline_df: pd.DataFrame) -> go.Figure:
         )
     )
 
-    minimum_date = plot_df["event_date"].min()
-    maximum_date = plot_df["event_date"].max()
-
-    if minimum_date == maximum_date:
-        range_start = minimum_date - pd.Timedelta(days=3)
-        range_end = maximum_date + pd.Timedelta(days=3)
-    else:
-        total_days = max(
-            (maximum_date - minimum_date).days,
-            1,
-        )
-
-        padding_days = max(
-            int(total_days * 0.12),
-            2,
-        )
-
-        range_start = minimum_date - pd.Timedelta(
-            days=padding_days
-        )
-        range_end = maximum_date + pd.Timedelta(
-            days=padding_days
-        )
-
     maximum_y = max(
-        abs(plot_df["y_position"]).max() + 0.25,
-        0.65,
+        abs(plot_df["y_position"]).max() + 0.3,
+        0.75,
     )
 
     figure.update_layout(
@@ -332,22 +358,19 @@ def make_timeline_figure(timeline_df: pd.DataFrame) -> go.Figure:
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         hoverlabel={
-            "bgcolor": "#17202A",
+            "bgcolor": "#111827",
             "font_color": "#FFFFFF",
-            "bordercolor": "#3A4A5B",
+            "bordercolor": "#334155",
         },
         xaxis={
             "title": "",
-            "range": [
-                range_start,
-                range_end,
-            ],
+            "range": [line_start, line_end],
             "showgrid": False,
             "showline": False,
             "tickformat": "%Y-%m-%d",
             "tickfont": {
                 "size": 12,
-                "color": "#667085",
+                "color": "#64748B",
             },
         },
         yaxis={
@@ -365,7 +388,7 @@ def make_timeline_figure(timeline_df: pd.DataFrame) -> go.Figure:
 
 
 # =========================================================
-# 화면 디자인
+# 디자인
 # =========================================================
 st.markdown(
     """
@@ -389,108 +412,60 @@ st.markdown(
         margin-bottom: 1.4rem;
     }
 
-    .case-card {
-        padding: 1.15rem 1.3rem;
-        border-radius: 16px;
-        background: linear-gradient(
-            135deg,
-            #F7F9FC,
-            #EFF4F8
-        );
-        border: 1px solid #DDE5EC;
-        line-height: 1.8;
-        margin-bottom: 1.2rem;
-    }
-
     .timeline-panel {
-        padding: 1.3rem 1.4rem 0.5rem 1.4rem;
+        padding: 1rem 1.2rem 0.2rem 1.2rem;
         border-radius: 20px;
-        background-color: #FFFFFF;
-        border: 1px solid #E1E7ED;
-        box-shadow: 0 10px 30px rgba(31, 41, 55, 0.06);
+        background: #FFFFFF;
+        border: 1px solid #E2E8F0;
+        box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
         margin-bottom: 1.5rem;
     }
 
-    .timeline-list {
-        position: relative;
-        margin-left: 1rem;
-        padding-left: 2rem;
-    }
-
-    .timeline-list::before {
-        content: "";
-        position: absolute;
-        left: 0.45rem;
-        top: 0.7rem;
-        bottom: 0.7rem;
-        width: 3px;
+    .event-count {
+        display: inline-block;
+        padding: 0.4rem 0.8rem;
         border-radius: 999px;
-        background: linear-gradient(
-            180deg,
-            #3B82F6,
-            #8B5CF6,
-            #14B8A6
-        );
+        background: #EAF2FF;
+        color: #1D4ED8;
+        font-size: 0.85rem;
+        font-weight: 750;
+        margin-bottom: 0.8rem;
     }
 
     .event-card {
-        position: relative;
-        padding: 1.05rem 1.2rem;
+        padding: 1rem 1.2rem;
         border-radius: 15px;
         background: #FFFFFF;
-        border: 1px solid #E1E7ED;
-        box-shadow: 0 5px 16px rgba(31, 41, 55, 0.05);
-        margin-bottom: 1rem;
-    }
-
-    .event-card::before {
-        content: "";
-        position: absolute;
-        left: -2.02rem;
-        top: 1.35rem;
-        width: 15px;
-        height: 15px;
-        border-radius: 50%;
-        background: #3B82F6;
-        border: 3px solid #FFFFFF;
-        box-shadow: 0 0 0 2px #3B82F6;
+        border: 1px solid #E2E8F0;
+        border-left: 6px solid #2563EB;
+        box-shadow: 0 5px 16px rgba(15, 23, 42, 0.05);
+        margin-bottom: 0.8rem;
     }
 
     .event-date {
-        color: #667085;
-        font-size: 0.84rem;
+        color: #64748B;
+        font-size: 0.85rem;
         font-weight: 650;
         margin-bottom: 0.25rem;
     }
 
     .event-type {
-        color: #172333;
+        color: #0F172A;
         font-size: 1.08rem;
         font-weight: 800;
         margin-bottom: 0.4rem;
     }
 
     .event-description {
-        color: #475467;
+        color: #475569;
         line-height: 1.65;
-    }
-
-    .event-count {
-        display: inline-block;
-        padding: 0.35rem 0.75rem;
-        border-radius: 999px;
-        background-color: #EAF2FF;
-        color: #2764B0;
-        font-size: 0.85rem;
-        font-weight: 750;
-        margin-bottom: 0.8rem;
     }
 
     div[data-testid="stForm"] {
         padding: 1.3rem;
         border-radius: 18px;
         border: 1px solid #DDE4EB;
-        background-color: #FFFFFF;
+        background: #FFFFFF;
     }
 
     .stButton > button,
@@ -511,7 +486,7 @@ st.markdown(
     """
 <div class="page-title">🗓️ 환자 진료 타임라인</div>
 <div class="page-description">
-    초진부터 검사, 수술 및 추적관찰까지 주요 사건을 시간순으로 기록합니다.
+초진부터 검사, 수술 및 추적관찰까지 주요 사건을 시간순으로 기록합니다.
 </div>
 """,
     unsafe_allow_html=True,
@@ -537,7 +512,8 @@ with st.spinner("저장된 증례 목록을 불러오는 중입니다."):
 
 if not cases:
     st.warning(
-        "저장된 증례가 없습니다. 먼저 새 증례를 등록해 주세요."
+        "저장된 증례가 없습니다. "
+        "먼저 '새 증례 등록' 페이지에서 증례를 등록해 주세요."
     )
     st.stop()
 
@@ -556,34 +532,68 @@ selected_case_label = st.selectbox(
 )
 
 selected_case = case_map[selected_case_label]
-selected_case_id = selected_case.get("case_id", "")
-
-
-st.markdown(
-    f"""
-<div class="case-card">
-    <strong>증례 고유번호</strong> ·
-    {safe_text(selected_case.get("case_id"))}<br>
-
-    <strong>비식별 환자코드</strong> ·
-    {safe_text(selected_case.get("patient_code"))}<br>
-
-    <strong>나이 / 성별</strong> ·
-    {safe_text(selected_case.get("age"))}세 /
-    {safe_text(selected_case.get("sex"))}<br>
-
-    <strong>주소</strong> ·
-    {safe_text(selected_case.get("chief_complaint"))}<br>
-
-    <strong>진단</strong> ·
-    {safe_text(
-        selected_case.get("pathologic_diagnosis")
-        or selected_case.get("clinical_diagnosis")
-    )}
-</div>
-""",
-    unsafe_allow_html=True,
+selected_case_id = clean_display_text(
+    selected_case.get("case_id")
 )
+
+
+# =========================================================
+# 선택한 증례 요약
+# HTML을 사용하지 않고 Streamlit 기본 구성요소로 표시
+# =========================================================
+diagnosis_text = clean_display_text(
+    selected_case.get("pathologic_diagnosis")
+    or selected_case.get("clinical_diagnosis")
+)
+
+case_id_text = clean_display_text(
+    selected_case.get("case_id")
+)
+
+patient_code_text = clean_display_text(
+    selected_case.get("patient_code")
+)
+
+age_text = clean_display_text(
+    selected_case.get("age")
+)
+
+sex_text = clean_display_text(
+    selected_case.get("sex")
+)
+
+chief_complaint_text = clean_display_text(
+    selected_case.get("chief_complaint")
+)
+
+lesion_site_text = clean_display_text(
+    selected_case.get("lesion_site")
+)
+
+with st.container(border=True):
+    st.markdown("### 🦷 선택한 증례")
+
+    summary_col1, summary_col2 = st.columns(2)
+
+    with summary_col1:
+        st.markdown("**증례 고유번호**")
+        st.code(case_id_text, language=None)
+
+        st.markdown("**비식별 환자코드**")
+        st.code(patient_code_text, language=None)
+
+        st.markdown("**나이 / 성별**")
+        st.write(f"{age_text}세 / {sex_text}")
+
+    with summary_col2:
+        st.markdown("**환자의 주소**")
+        st.write(chief_complaint_text)
+
+        st.markdown("**진단명**")
+        st.write(diagnosis_text)
+
+        st.markdown("**병변 위치**")
+        st.write(lesion_site_text)
 
 
 # =========================================================
@@ -690,14 +700,35 @@ if not timeline:
 
 timeline_df = pd.DataFrame(timeline)
 
+required_columns = [
+    "timeline_id",
+    "event_date",
+    "event_type",
+    "event_description",
+]
+
+for column in required_columns:
+    if column not in timeline_df.columns:
+        timeline_df[column] = ""
+
 timeline_df["event_date"] = pd.to_datetime(
     timeline_df["event_date"],
     errors="coerce",
 )
 
+invalid_date_count = int(
+    timeline_df["event_date"].isna().sum()
+)
+
 timeline_df = timeline_df.dropna(
     subset=["event_date"]
 )
+
+if timeline_df.empty:
+    st.warning(
+        "타임라인 항목은 존재하지만 날짜 형식이 올바르지 않습니다."
+    )
+    st.stop()
 
 timeline_df = timeline_df.sort_values(
     by=[
@@ -712,77 +743,58 @@ timeline_df["display_date"] = timeline_df[
 ].dt.strftime("%Y-%m-%d")
 
 
+if invalid_date_count > 0:
+    st.warning(
+        f"날짜 형식이 올바르지 않은 항목 {invalid_date_count}개는 "
+        "타임라인에서 제외했습니다."
+    )
+
+
 # =========================================================
-# 진짜 타임라인 그래프
+# 시각적 타임라인
 # =========================================================
 st.markdown(
     f"""
-<div class="event-count">
-    총 {len(timeline_df)}개의 주요 사건
-</div>
+<div class="event-count">총 {len(timeline_df)}개의 주요 사건</div>
 """,
     unsafe_allow_html=True,
 )
 
-st.markdown(
-    '<div class="timeline-panel">',
-    unsafe_allow_html=True,
-)
-
-timeline_figure = make_timeline_figure(
+timeline_figure = build_timeline_figure(
     timeline_df
 )
 
-st.plotly_chart(
-    timeline_figure,
-    use_container_width=True,
-    config={
-        "displayModeBar": False,
-        "scrollZoom": False,
-    },
-)
-
-st.markdown(
-    "</div>",
-    unsafe_allow_html=True,
-)
+with st.container(border=True):
+    st.plotly_chart(
+        timeline_figure,
+        use_container_width=True,
+        config={
+            "displayModeBar": False,
+            "scrollZoom": False,
+        },
+    )
 
 
 # =========================================================
-# 상세 세로 타임라인
+# 상세 기록
 # =========================================================
 st.markdown("### 📌 상세 기록")
 
-st.markdown(
-    '<div class="timeline-list">',
-    unsafe_allow_html=True,
-)
-
 for _, row in timeline_df.iterrows():
-    timeline_id = str(
-        row.get(
-            "timeline_id",
-            "",
-        )
+    timeline_id = clean_display_text(
+        row.get("timeline_id")
     )
 
-    display_date = row.get(
-        "display_date",
-        "",
+    display_date = clean_display_text(
+        row.get("display_date")
     )
 
-    row_event_type = safe_text(
-        row.get(
-            "event_type",
-            "",
-        )
+    row_event_type = safe_html(
+        row.get("event_type")
     )
 
-    row_description = safe_text(
-        row.get(
-            "event_description",
-            "",
-        )
+    row_description = safe_html(
+        row.get("event_description")
     )
 
     event_col, delete_col = st.columns(
@@ -794,11 +806,9 @@ for _, row in timeline_df.iterrows():
         st.markdown(
             f"""
 <div class="event-card">
-    <div class="event-date">{display_date}</div>
-    <div class="event-type">{row_event_type}</div>
-    <div class="event-description">
-        {row_description}
-    </div>
+<div class="event-date">{display_date}</div>
+<div class="event-type">{row_event_type}</div>
+<div class="event-description">{row_description}</div>
 </div>
 """,
             unsafe_allow_html=True,
@@ -815,13 +825,8 @@ for _, row in timeline_df.iterrows():
             st.session_state.delete_timeline_id = timeline_id
             st.session_state.delete_timeline_text = (
                 f"{display_date} · "
-                f"{row.get('event_type', '')}"
+                f"{clean_display_text(row.get('event_type'))}"
             )
-
-st.markdown(
-    "</div>",
-    unsafe_allow_html=True,
-)
 
 
 # =========================================================
