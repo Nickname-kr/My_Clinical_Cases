@@ -276,13 +276,14 @@ st.markdown(
     """
 <div class="section-title">CASE WORKFLOW</div>
 <div class="section-text">
-    현재 필요한 작업을 선택하세요.
+현재 필요한 작업을 선택하세요.
 </div>
 """,
     unsafe_allow_html=True,
 )
 
-col1, col2, col3 = st.columns(3, gap="large")
+col1, col2, col3, col4 = st.columns(4, gap="large")
+
 
 with col1:
     st.markdown(
@@ -307,6 +308,7 @@ with col1:
         use_container_width=True,
     )
 
+
 with col2:
     st.markdown(
         """
@@ -330,6 +332,7 @@ with col2:
         use_container_width=True,
     )
 
+
 with col3:
     st.markdown(
         """
@@ -349,6 +352,30 @@ with col3:
     st.page_link(
         "pages/03_증례_조회_및_수정.py",
         label="증례 데이터베이스",
+        icon="➡️",
+        use_container_width=True,
+    )
+
+
+with col4:
+    st.markdown(
+        """
+<div class="menu-card">
+    <div class="menu-number">STEP 04</div>
+    <div class="menu-icon">🧠</div>
+    <div class="menu-title">학회 발표 키워드 추천</div>
+    <div class="menu-text">
+        저장된 증례와 타임라인을 AI가 분석하여,
+        흥미로운 발표 포인트와 고찰 키워드를 추천합니다.
+    </div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+    st.page_link(
+        "pages/04_학회_증례_발표_키워드_추천.py",
+        label="AI 발표 분석",
         icon="➡️",
         use_container_width=True,
     )
